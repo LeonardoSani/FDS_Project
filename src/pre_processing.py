@@ -15,7 +15,6 @@ def resize_images(size=(128, 128)):
         resized_images.append(np.array(img_resized))
     return np.array(resized_images) 
 
-
 def get_data():
     images_128_128 = resize_images()
     y = np.where(proba>0.5,1,0)
@@ -36,7 +35,6 @@ def rotate_180(image):
     return np.rot90(image, k=2)
 
 
-
 def split_data(X, Y, Z, test_size=0.2, val_size=0.1, random_state=42):
     """
     Splits the dataset into training, validation, and test sets.
@@ -45,7 +43,6 @@ def split_data(X, Y, Z, test_size=0.2, val_size=0.1, random_state=42):
     val_relative_size = val_size / (1 - test_size)
     X_val, X_test, Y_val, Y_test, Z_val, Z_test = train_test_split(X_temp, Y_temp, Z_temp, test_size=val_relative_size, random_state=random_state)
     return X_train, Y_train, Z_train, X_val, Y_val, Z_val, X_test, Y_test, Z_test
-
 
 def augment_data(X, Y, Z):
     """
