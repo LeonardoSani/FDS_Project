@@ -6,8 +6,11 @@ readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
     "elpv-dataset>=1.0.0.post1",
+    "ipykernel>=7.1.0",
     "numpy>=2.3.5",
     "pandas>=2.3.3",
     "pillow>=12.0.0",
+    "scikit-learn>=1.7.2",
+    "seaborn>=0.13.2",
     "torch>=2.9.1",
 ]
