@@ -64,7 +64,7 @@ class Decoder(nn.Module):
             nn.ReLU(),
 
             nn.ConvTranspose2d(32, img_channels, 4, 2, 1), # 256x256
-            nn.Tanh()  # output in [-1,1]
+            nn.Sigmoid() # output in [0,1]
         )
 
     def forward(self, z):
@@ -95,14 +95,28 @@ class VAE(nn.Module):
         return x_hat, mu, logvar
 
 
-def loss_function(x_hat, x, mu, logvar, beta=1e-3):
-    recon= F.l1_loss(x_hat, x, reduction="mean")
 
-    # KL divergence
-    kld = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
+def loss_function(x_hat, x, mu, logvar, beta=1.0):
+    """
+    x_hat: Reconstructed image (Output of Sigmoid)
+    x:     Original image (0 to 1)
+    """
+    
+    # 1. BCE Reconstruction
+    # reduction='sum' sums all pixel errors -> High magnitude loss (e.g. 2000.0)
+    # This forces the model to care about the fine details (cracks)
+    recon_loss = F.binary_cross_entropy(x_hat, x, reduction='sum')
+    
+    # Optional: If the loss is too huge, divide by batch size only
+    # recon_loss = recon_loss / x.size(0) 
 
-    return recon + beta * kld
+    # 2. KL Divergence
+    # Analytical solution
+    kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    # Normalize KLD by batch size if you normalized recon by batch size
+    # kld = kld / x.size(0)
 
+    return recon_loss + (beta * kld)
 
 def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weight_decay=1e-5, device=None):
     """

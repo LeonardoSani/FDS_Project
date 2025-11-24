@@ -19,8 +19,8 @@ def get_data(normalize=True, size=(128, 128)):
     images_128_128 = resize_images(size)
     
     if normalize:
-        # Normalize to [-1, 1]
-        images_128_128 = (images_128_128 / 127.5) - 1.0
+        # Normalize to [0, 1]
+        images_128_128 = images_128_128.astype('float32') / 255.0
         
     y = np.where(proba>0.5,1,0)
     return images_128_128, y, types
