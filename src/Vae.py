@@ -8,80 +8,78 @@ from torch.utils.data import DataLoader, TensorDataset
 # Encoder
 # -----------------------------
 class Encoder(nn.Module):
-    def __init__(self, latent_dim=64, img_channels=1):
-        super().__init__()
-        self.latent_dim = latent_dim
-
+    def __init__(self, latent_dim=128):
+        super(Encoder, self).__init__()
         self.conv = nn.Sequential(
-            nn.Conv2d(img_channels, 32, 4, 2, 1),  # 128x128
-            nn.ReLU(),
+            nn.Conv2d(1, 64, 3, 2, 1),  # 128 -> 64
+            nn.BatchNorm2d(64),
+            nn.LeakyReLU(0.2),
 
-            nn.Conv2d(32, 64, 4, 2, 1),  # 64x64
-            nn.ReLU(),
+            nn.Conv2d(64, 128, 3, 2, 1), # 64 -> 32
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2),
 
-            nn.Conv2d(64, 128, 4, 2, 1), # 32x32
-            nn.ReLU(),
+            nn.Conv2d(128, 256, 3, 2, 1), # 32 -> 16
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2),
 
-            nn.Conv2d(128, 256, 4, 2, 1), # 16x16
-            nn.ReLU(),
+            nn.Conv2d(256, 512, 3, 2, 1), # 16 -> 8
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2),
 
-            nn.Conv2d(256, 512, 4, 2, 1), # 8x8
-            nn.ReLU(),
+            nn.Conv2d(512, 512, 3, 2, 1), # 8 -> 4
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2)
         )
-
-        self.fc_mu = nn.Linear(512 * 8 * 8, latent_dim)
-        self.fc_logvar = nn.Linear(512 * 8 * 8, latent_dim)
+        self.fc_mu = nn.Linear(512*4*4, latent_dim)
+        self.fc_logvar = nn.Linear(512*4*4, latent_dim)
 
     def forward(self, x):
-        h = self.conv(x)
-        h = h.flatten(1)
-
-        mu = self.fc_mu(h)
-        logvar = self.fc_logvar(h)
+        x = self.conv(x)
+        x = x.view(x.size(0), -1)
+        mu = self.fc_mu(x)
+        logvar = self.fc_logvar(x)
         return mu, logvar
-
 
 # -----------------------------
 # Decoder
 # -----------------------------
 class Decoder(nn.Module):
-    def __init__(self, latent_dim=64, img_channels=1):
-        super().__init__()
-
-        self.fc = nn.Linear(latent_dim, 512 * 8 * 8)
-
-        self.deconv = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, 4, 2, 1), # 16x16
-            nn.ReLU(),
-
-            nn.ConvTranspose2d(256, 128, 4, 2, 1), # 32x32
-            nn.ReLU(),
-
-            nn.ConvTranspose2d(128, 64, 4, 2, 1), # 64x64
-            nn.ReLU(),
-
-            nn.ConvTranspose2d(64, 32, 4, 2, 1), # 128x128
-            nn.ReLU(),
-
-            nn.ConvTranspose2d(32, img_channels, 4, 2, 1), # 256x256
-            nn.Sigmoid() # output in [0,1]
+    def __init__(self, latent_dim=128):
+        super(Decoder, self).__init__()
+        self.fc = nn.Sequential(
+            nn.Linear(latent_dim, 512*4*4),
+            nn.ReLU(True),
+            nn.Unflatten(1, (512, 4, 4))
+        )
+        self.model = nn.Sequential(
+            nn.ConvTranspose2d(512, 512, 4, 2, 1), # 4 -> 8
+            nn.ReLU(True),
+            nn.ConvTranspose2d(512, 256, 4, 2, 1), # 8 -> 16
+            nn.ReLU(True),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1), # 16 -> 32
+            nn.ReLU(True),
+            nn.ConvTranspose2d(128, 64, 4, 2, 1),  # 32 -> 64
+            nn.ReLU(True),
+            nn.ConvTranspose2d(64, 32, 4, 2, 1),   # 64 -> 128
+            nn.ReLU(True),
+            nn.Conv2d(32, 1, 3, 1, 1),
+            nn.Sigmoid()  # output in [0,1]
         )
 
     def forward(self, z):
-        h = self.fc(z)
-        h = h.view(-1, 512, 8, 8)
-        return self.deconv(h)
-
+        x = self.fc(z)
+        img = self.model(x)
+        return img
 
 # -----------------------------
 # VAE (Encoder + Decoder)
 # -----------------------------
 class VAE(nn.Module):
-    def __init__(self, latent_dim=64, img_channels=1):
-        super().__init__()
-        self.latent_dim = latent_dim
-        self.encoder = Encoder(latent_dim, img_channels)
-        self.decoder = Decoder(latent_dim, img_channels)
+    def __init__(self, latent_dim=128):
+        super(VAE, self).__init__()
+        self.encoder = Encoder(latent_dim)
+        self.decoder = Decoder(latent_dim)
 
     def reparameterize(self, mu, logvar):
         std = torch.exp(0.5 * logvar)
@@ -91,9 +89,8 @@ class VAE(nn.Module):
     def forward(self, x):
         mu, logvar = self.encoder(x)
         z = self.reparameterize(mu, logvar)
-        x_hat = self.decoder(z)
-        return x_hat, mu, logvar
-
+        recon = self.decoder(z)
+        return recon, mu, logvar
 
 
 def loss_function(x_hat, x, mu, logvar, beta=1.0):
@@ -102,19 +99,9 @@ def loss_function(x_hat, x, mu, logvar, beta=1.0):
     x:     Original image (0 to 1)
     """
     
-    # 1. BCE Reconstruction
-    # reduction='sum' sums all pixel errors -> High magnitude loss (e.g. 2000.0)
-    # This forces the model to care about the fine details (cracks)
     recon_loss = F.binary_cross_entropy(x_hat, x, reduction='sum')
     
-    # Optional: If the loss is too huge, divide by batch size only
-    # recon_loss = recon_loss / x.size(0) 
-
-    # 2. KL Divergence
-    # Analytical solution
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-    # Normalize KLD by batch size if you normalized recon by batch size
-    # kld = kld / x.size(0)
 
     return recon_loss + (beta * kld)
 
