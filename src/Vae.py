@@ -94,7 +94,7 @@ def loss_function(x_hat, x, mu, logvar):
 
     return recon_loss + kld
 
-
+'''
 vae = VAE(latent_dim=64, img_channels=1).cuda()
 optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
 
@@ -110,3 +110,4 @@ for epoch in range(80):
         optimizer.step()
 
     print(f"Epoch {epoch}, Loss: {loss.item():.2f}")
+'''
