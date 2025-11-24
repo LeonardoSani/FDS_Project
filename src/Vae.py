@@ -4,6 +4,32 @@ import torch.nn.functional as F
 import copy
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
+
+# -----------------------------
+# Residual Block
+# -----------------------------
+class ResidualBlock(nn.Module):
+    """
+    Standard ResBlock: x + Conv -> BN -> ReLU -> Conv -> BN
+    Keeps dimensions constant.
+    """
+    def __init__(self, channels):
+        super(ResidualBlock, self).__init__()
+        self.block = nn.Sequential(
+            nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(channels),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(channels, channels, kernel_size=3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(channels)
+        )
+        self.relu = nn.ReLU(inplace=True)
+
+    def forward(self, x):
+        residual = x
+        out = self.block(x)
+        out += residual
+        return self.relu(out)
+
 # -----------------------------
 # Encoder
 # -----------------------------
@@ -12,28 +38,29 @@ class Encoder(nn.Module):
         super().__init__()
         self.latent_dim = latent_dim
 
-        self.conv = nn.Sequential(
-            nn.Conv2d(img_channels, 32, 4, 2, 1),  # 128x128
-            nn.ReLU(),
+        # Helper: Downsample (stride 2) -> BN -> ReLU -> ResidualBlock
+        def down_block(in_c, out_c):
+            return nn.Sequential(
+                nn.Conv2d(in_c, out_c, kernel_size=4, stride=2, padding=1, bias=False), 
+                nn.BatchNorm2d(out_c),
+                nn.ReLU(inplace=True),
+                ResidualBlock(out_c)
+            )
 
-            nn.Conv2d(32, 64, 4, 2, 1),  # 64x64
-            nn.ReLU(),
-
-            nn.Conv2d(64, 128, 4, 2, 1), # 32x32
-            nn.ReLU(),
-
-            nn.Conv2d(128, 256, 4, 2, 1), # 16x16
-            nn.ReLU(),
-
-            nn.Conv2d(256, 512, 4, 2, 1), # 8x8
-            nn.ReLU(),
+        self.net = nn.Sequential(
+            # Input: 1 x 256 x 256
+            down_block(img_channels, 32),  # -> 128x128
+            down_block(32, 64),            # -> 64x64
+            down_block(64, 128),           # -> 32x32
+            down_block(128, 256),          # -> 16x16
+            down_block(256, 512),          # -> 8x8
         )
 
         self.fc_mu = nn.Linear(512 * 8 * 8, latent_dim)
         self.fc_logvar = nn.Linear(512 * 8 * 8, latent_dim)
 
     def forward(self, x):
-        h = self.conv(x)
+        h = self.net(x)
         h = h.flatten(1)
 
         mu = self.fc_mu(h)
@@ -50,27 +77,40 @@ class Decoder(nn.Module):
 
         self.fc = nn.Linear(latent_dim, 512 * 8 * 8)
 
-        self.deconv = nn.Sequential(
-            nn.ConvTranspose2d(512, 256, 4, 2, 1), # 16x16
-            nn.ReLU(),
+        # Helper: Upsample (Transpose stride 2) -> BN -> ReLU -> ResidualBlock
+        def up_block(in_c, out_c, final_layer=False):
+            layers = [
+                nn.ConvTranspose2d(in_c, out_c, kernel_size=4, stride=2, padding=1, bias=False),
+            ]
+            if not final_layer:
+                layers.extend([
+                    nn.BatchNorm2d(out_c),
+                    nn.ReLU(inplace=True),
+                    ResidualBlock(out_c)
+                ])
+            return nn.Sequential(*layers)
 
-            nn.ConvTranspose2d(256, 128, 4, 2, 1), # 32x32
-            nn.ReLU(),
-
-            nn.ConvTranspose2d(128, 64, 4, 2, 1), # 64x64
-            nn.ReLU(),
-
-            nn.ConvTranspose2d(64, 32, 4, 2, 1), # 128x128
-            nn.ReLU(),
-
-            nn.ConvTranspose2d(32, img_channels, 4, 2, 1), # 256x256
-            nn.Tanh()  # output in [-1,1]
-        )
+        # Reconstructs 256x256 from 8x8
+        self.up1 = up_block(512, 256) # -> 16x16
+        self.up2 = up_block(256, 128) # -> 32x32
+        self.up3 = up_block(128, 64)  # -> 64x64
+        self.up4 = up_block(64, 32)   # -> 128x128
+        
+        # Final layer to 256x256
+        self.final_conv = nn.ConvTranspose2d(32, img_channels, 4, 2, 1)
+        self.final_act = nn.Tanh() 
 
     def forward(self, z):
         h = self.fc(z)
         h = h.view(-1, 512, 8, 8)
-        return self.deconv(h)
+        
+        h = self.up1(h)
+        h = self.up2(h)
+        h = self.up3(h)
+        h = self.up4(h)
+        
+        h = self.final_conv(h)
+        return self.final_act(h)
 
 
 # -----------------------------
@@ -96,36 +136,25 @@ class VAE(nn.Module):
 
 
 def loss_function(x_hat, x, mu, logvar):
+    # Reconstruction Loss (MSE)
+    # Ensure reduction="sum" so it balances well with KLD sum
     recon_loss = F.mse_loss(x_hat, x, reduction="sum")
-
-    # KL divergence
+    
+    # KL Divergence
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
-
+    
     return recon_loss + kld
 
 
 def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weight_decay=1e-5, device=None):
-    """
-    Trains the VAE model.
-    
-    Args:
-        vae_model: The VAE model instance.
-        X_train: Training data (numpy array).
-        X_val: Validation data (numpy array).
-        epochs: Number of epochs to train.
-        batch_size: Batch size for DataLoader.
-        lr: Learning rate for Adam optimizer.
-        device: 'cuda' or 'cpu'. If None, automatically detects.
-        
-    Returns:
-        history: Dictionary containing 'train_loss' and 'val_loss' lists.
-    """
     
     if device is None:
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     
     vae_model.to(device)
     
+    # Data Preparation
+    # Ensure inputs are (N, 1, 256, 256)
     if X_train.ndim == 3:
         X_train_tensor = torch.tensor(X_train, dtype=torch.float32).unsqueeze(1)
         X_val_tensor = torch.tensor(X_val, dtype=torch.float32).unsqueeze(1)
@@ -133,22 +162,20 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weig
         X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
         X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
 
-    # Create TensorDatasets---------------------
     train_dataset = TensorDataset(X_train_tensor)
     val_dataset = TensorDataset(X_val_tensor)
 
-    # Create DataLoaders------------------------
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    # Optimizer---------------------------------
-    optimizer = optim.Adam(vae_model.parameters(), lr=lr, weight_decay=weight_decay)
-    # Training Loop-----------------------------
+    # Optimizer: ADAMW
+    optimizer = optim.AdamW(vae_model.parameters(), lr=lr, weight_decay=weight_decay)
+    
     history = {'train_loss': [], 'val_loss': []}
     best_val_loss = float('inf')
     best_model_state = None
 
-    print(f"Starting VAE training on {device}...")
+    print(f"Starting VAE training on {device} for 256x256 inputs...")
     
     for epoch in range(epochs):
         vae_model.train()
@@ -164,9 +191,6 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weig
             optimizer.step()
             
             train_loss += loss.item()
-            
-            if batch_idx % 10 == 0:
-                pass
 
         avg_train_loss = train_loss / len(train_loader.dataset)
         history['train_loss'].append(avg_train_loss)
@@ -184,18 +208,16 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weig
         avg_val_loss = val_loss / len(val_loader.dataset)
         history['val_loss'].append(avg_val_loss)
 
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+        print(f"Epoch {epoch+1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Val Loss: {avg_val_loss:.4f}")
         
-        # Save best model
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             best_model_state = copy.deepcopy(vae_model.state_dict())
-            # print(f"New best model found at epoch {epoch+1} with val loss {best_val_loss:.4f}")
 
-    print("VAE training complete!")
+    print("Training complete.")
     
     if best_model_state is not None:
-        print(f"Restoring best model from epoch with val loss: {best_val_loss:.4f}")
+        print(f"Restoring best model (Val Loss: {best_val_loss:.4f})")
         vae_model.load_state_dict(best_model_state)
         
     return history
