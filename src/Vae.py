@@ -96,7 +96,7 @@ class VAE(nn.Module):
 
 
 def loss_function(x_hat, x, mu, logvar, beta=1e-3):
-    recon_loss = F.l1_loss(x_hat, x, reduction="mean")
+    recon= F.l1_loss(x_hat, x, reduction="mean")
 
     # KL divergence
     kld = -0.5 * torch.mean(1 + logvar - mu.pow(2) - logvar.exp())
