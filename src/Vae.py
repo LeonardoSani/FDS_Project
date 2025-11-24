@@ -104,7 +104,7 @@ def loss_function(x_hat, x, mu, logvar):
     return recon_loss + kld
 
 
-def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, device=None):
+def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weight_decay=1e-5, device=None):
     """
     Trains the VAE model.
     
@@ -142,8 +142,7 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, devi
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # Optimizer---------------------------------
-    optimizer = optim.Adam(vae_model.parameters(), lr=lr)
-    
+    optimizer = optim.Adam(vae_model.parameters(), lr=lr, weight_decay=weight_decay)
     # Training Loop-----------------------------
     history = {'train_loss': [], 'val_loss': []}
     best_val_loss = float('inf')
