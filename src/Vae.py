@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import copy
 
 # -----------------------------
 # Encoder
@@ -94,20 +95,102 @@ def loss_function(x_hat, x, mu, logvar):
 
     return recon_loss + kld
 
-'''
-vae = VAE(latent_dim=64, img_channels=1).cuda()
-optimizer = torch.optim.Adam(vae.parameters(), lr=1e-3)
 
-for epoch in range(80):
-    for x in dataloader:
-        x = x.cuda()
-        x_hat, mu, logvar = vae(x)
+def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, device=None):
+    """
+    Trains the VAE model.
+    
+    Args:
+        vae_model: The VAE model instance.
+        X_train: Training data (numpy array).
+        X_val: Validation data (numpy array).
+        epochs: Number of epochs to train.
+        batch_size: Batch size for DataLoader.
+        lr: Learning rate for Adam optimizer.
+        device: 'cuda' or 'cpu'. If None, automatically detects.
+        
+    Returns:
+        history: Dictionary containing 'train_loss' and 'val_loss' lists.
+    """
+    
+    if device is None:
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    
+    vae_model.to(device)
+    
+    if X_train.ndim == 3:
+        X_train_tensor = torch.tensor(X_train, dtype=torch.float32).unsqueeze(1)
+        X_val_tensor = torch.tensor(X_val, dtype=torch.float32).unsqueeze(1)
+    else:
+        X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
+        X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
 
-        loss = loss_function(x_hat, x, mu, logvar)
+    # Create TensorDatasets---------------------
+    train_dataset = TensorDataset(X_train_tensor)
+    val_dataset = TensorDataset(X_val_tensor)
 
-        optimizer.zero_grad()
-        loss.backward()
-        optimizer.step()
+    # Create DataLoaders------------------------
+    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
-    print(f"Epoch {epoch}, Loss: {loss.item():.2f}")
-'''
+    # Optimizer---------------------------------
+    optimizer = optim.Adam(vae_model.parameters(), lr=lr)
+    
+    # Training Loop-----------------------------
+    history = {'train_loss': [], 'val_loss': []}
+    best_val_loss = float('inf')
+    best_model_state = None
+
+    print(f"Starting VAE training on {device}...")
+    
+    for epoch in range(epochs):
+        vae_model.train()
+        train_loss = 0
+        
+        for batch_idx, (data,) in enumerate(train_loader):
+            data = data.to(device)
+            
+            optimizer.zero_grad()
+            x_hat, mu, logvar = vae_model(data)
+            loss = loss_function(x_hat, data, mu, logvar)
+            loss.backward()
+            optimizer.step()
+            
+            train_loss += loss.item()
+            
+            if batch_idx % 10 == 0:
+                pass
+
+        avg_train_loss = train_loss / len(train_loader.dataset)
+        history['train_loss'].append(avg_train_loss)
+
+        # Validation
+        vae_model.eval()
+        val_loss = 0
+        with torch.no_grad():
+            for data, in val_loader:
+                data = data.to(device)
+                x_hat, mu, logvar = vae_model(data)
+                loss = loss_function(x_hat, data, mu, logvar)
+                val_loss += loss.item()
+
+        avg_val_loss = val_loss / len(val_loader.dataset)
+        history['val_loss'].append(avg_val_loss)
+
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
+        
+        # Save best model
+        if avg_val_loss < best_val_loss:
+            best_val_loss = avg_val_loss
+            best_model_state = copy.deepcopy(vae_model.state_dict())
+            # print(f"New best model found at epoch {epoch+1} with val loss {best_val_loss:.4f}")
+
+    print("VAE training complete!")
+    
+    if best_model_state is not None:
+        print(f"Restoring best model from epoch with val loss: {best_val_loss:.4f}")
+        vae_model.load_state_dict(best_model_state)
+        
+    return history
+
+
