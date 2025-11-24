@@ -15,8 +15,13 @@ def resize_images(size=(128, 128)):
         resized_images.append(np.array(img_resized))
     return np.array(resized_images) 
 
-def get_data():
+def get_data(normalize=True):
     images_128_128 = resize_images()
+    
+    if normalize:
+        # Normalize to [-1, 1]
+        images_128_128 = (images_128_128 / 127.5) - 1.0
+        
     y = np.where(proba>0.5,1,0)
     return images_128_128, y, types
 
@@ -121,3 +126,9 @@ def augment_data(X, Y, Z):
             Z_augmented.append(Z[src_idx])
 
     return np.stack(X_augmented), np.array(Y_augmented), np.where(np.array(Z_augmented)==0, 'mono', 'poly')
+
+def get_defect(X,Y):
+    """
+    Returns the images where Y==1
+    """
+    return X[Y==1]
