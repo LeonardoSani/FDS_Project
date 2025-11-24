@@ -15,8 +15,8 @@ def resize_images(size=(128, 128)):
         resized_images.append(np.array(img_resized))
     return np.array(resized_images) 
 
-def get_data(normalize=True):
-    images_128_128 = resize_images()
+def get_data(normalize=True, size=(128, 128)):
+    images_128_128 = resize_images(size)
     
     if normalize:
         # Normalize to [-1, 1]

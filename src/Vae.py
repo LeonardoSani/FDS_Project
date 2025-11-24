@@ -4,7 +4,6 @@ import torch.nn.functional as F
 import copy
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
-
 # -----------------------------
 # Encoder
 # -----------------------------
@@ -14,21 +13,24 @@ class Encoder(nn.Module):
         self.latent_dim = latent_dim
 
         self.conv = nn.Sequential(
-            nn.Conv2d(img_channels, 32, 4, 2, 1),  # 64x64
+            nn.Conv2d(img_channels, 32, 4, 2, 1),  # 128x128
             nn.ReLU(),
 
-            nn.Conv2d(32, 64, 4, 2, 1),  # 32x32
+            nn.Conv2d(32, 64, 4, 2, 1),  # 64x64
             nn.ReLU(),
 
-            nn.Conv2d(64, 128, 4, 2, 1), # 16x16
+            nn.Conv2d(64, 128, 4, 2, 1), # 32x32
             nn.ReLU(),
 
-            nn.Conv2d(128, 256, 4, 2, 1), # 8x8
+            nn.Conv2d(128, 256, 4, 2, 1), # 16x16
+            nn.ReLU(),
+
+            nn.Conv2d(256, 512, 4, 2, 1), # 8x8
             nn.ReLU(),
         )
 
-        self.fc_mu = nn.Linear(256 * 8 * 8, latent_dim)
-        self.fc_logvar = nn.Linear(256 * 8 * 8, latent_dim)
+        self.fc_mu = nn.Linear(512 * 8 * 8, latent_dim)
+        self.fc_logvar = nn.Linear(512 * 8 * 8, latent_dim)
 
     def forward(self, x):
         h = self.conv(x)
@@ -46,25 +48,28 @@ class Decoder(nn.Module):
     def __init__(self, latent_dim=64, img_channels=1):
         super().__init__()
 
-        self.fc = nn.Linear(latent_dim, 256 * 8 * 8)
+        self.fc = nn.Linear(latent_dim, 512 * 8 * 8)
 
         self.deconv = nn.Sequential(
-            nn.ConvTranspose2d(256, 128, 4, 2, 1), # 16x16
+            nn.ConvTranspose2d(512, 256, 4, 2, 1), # 16x16
             nn.ReLU(),
 
-            nn.ConvTranspose2d(128, 64, 4, 2, 1), # 32x32
+            nn.ConvTranspose2d(256, 128, 4, 2, 1), # 32x32
             nn.ReLU(),
 
-            nn.ConvTranspose2d(64, 32, 4, 2, 1), # 64x64
+            nn.ConvTranspose2d(128, 64, 4, 2, 1), # 64x64
             nn.ReLU(),
 
-            nn.ConvTranspose2d(32, img_channels, 4, 2, 1), # 128x128
+            nn.ConvTranspose2d(64, 32, 4, 2, 1), # 128x128
+            nn.ReLU(),
+
+            nn.ConvTranspose2d(32, img_channels, 4, 2, 1), # 256x256
             nn.Tanh()  # output in [-1,1]
         )
 
     def forward(self, z):
         h = self.fc(z)
-        h = h.view(-1, 256, 8, 8)
+        h = h.view(-1, 512, 8, 8)
         return self.deconv(h)
 
 
@@ -74,6 +79,7 @@ class Decoder(nn.Module):
 class VAE(nn.Module):
     def __init__(self, latent_dim=64, img_channels=1):
         super().__init__()
+        self.latent_dim = latent_dim
         self.encoder = Encoder(latent_dim, img_channels)
         self.decoder = Decoder(latent_dim, img_channels)
 
