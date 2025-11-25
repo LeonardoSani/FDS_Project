@@ -170,7 +170,7 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weig
             
             optimizer.zero_grad()
             x_hat, mu, logvar = vae_model(data)
-            loss = loss_function(x_hat, data, mu, logvar, beta=beta, recon=recon)
+            loss = loss_function(x_hat, data, mu, logvar, beta=beta)
             loss.backward()
             optimizer.step()
             
@@ -189,7 +189,7 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weig
             for data, in val_loader:
                 data = data.to(device)
                 x_hat, mu, logvar = vae_model(data)
-                loss = loss_function(x_hat, data, mu, logvar, beta=beta, recon=recon)
+                loss = loss_function(x_hat, data, mu, logvar, beta=beta)
                 val_loss += loss.item()
 
         avg_val_loss = val_loss / len(val_loader.dataset)
