@@ -95,16 +95,13 @@ class VAE(nn.Module):
         return x_hat, mu, logvar
 
 
-def loss_function(x_hat, x, mu, logvar):
+def loss_function(x_hat, x, mu, logvar, beta=1):
     recon_loss = F.mse_loss(x_hat, x, reduction="sum")
-
-    # KL divergence
     kld = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+    return recon_loss + beta * kld, recon_loss, kld
 
-    return recon_loss + kld
 
-
-def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weight_decay=1e-5, device=None):
+def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weight_decay=1e-5, beta=1, device=None):
     """
     Trains the VAE model.
     
@@ -144,7 +141,14 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weig
     # Optimizer---------------------------------
     optimizer = optim.Adam(vae_model.parameters(), lr=lr, weight_decay=weight_decay)
     # Training Loop-----------------------------
-    history = {'train_loss': [], 'val_loss': []}
+    history = {
+        'train_loss': [],
+        'val_loss': [],
+        'train_recon_loss': [],
+        'train_kld': [],
+        'val_recon_loss': [],
+        'val_kld': []
+    }
     best_val_loss = float('inf')
     best_model_state = None
 
@@ -153,51 +157,65 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weig
     for epoch in range(epochs):
         vae_model.train()
         train_loss = 0
-        
+        train_recon_loss = 0
+        train_kld = 0
+
         for batch_idx, (data,) in enumerate(train_loader):
             data = data.to(device)
-            
             optimizer.zero_grad()
             x_hat, mu, logvar = vae_model(data)
-            loss = loss_function(x_hat, data, mu, logvar)
+            loss, recon_loss, kld = loss_function(x_hat, data, mu, logvar, beta=beta)
             loss.backward()
             optimizer.step()
-            
             train_loss += loss.item()
-            
+            train_recon_loss += recon_loss.item()
+            train_kld += kld.item()
             if batch_idx % 10 == 0:
                 pass
 
         avg_train_loss = train_loss / len(train_loader.dataset)
+        avg_train_recon_loss = train_recon_loss / len(train_loader.dataset)
+        avg_train_kld = train_kld / len(train_loader.dataset)
         history['train_loss'].append(avg_train_loss)
+        history['train_recon_loss'].append(avg_train_recon_loss)
+        history['train_kld'].append(avg_train_kld)
 
         # Validation
         vae_model.eval()
         val_loss = 0
+        val_recon_loss = 0
+        val_kld = 0
         with torch.no_grad():
             for data, in val_loader:
                 data = data.to(device)
                 x_hat, mu, logvar = vae_model(data)
-                loss = loss_function(x_hat, data, mu, logvar)
+                loss, recon_loss, kld = loss_function(x_hat, data, mu, logvar, beta=beta)
                 val_loss += loss.item()
+                val_recon_loss += recon_loss.item()
+                val_kld += kld.item()
 
         avg_val_loss = val_loss / len(val_loader.dataset)
+        avg_val_recon_loss = val_recon_loss / len(val_loader.dataset)
+        avg_val_kld = val_kld / len(val_loader.dataset)
         history['val_loss'].append(avg_val_loss)
+        history['val_recon_loss'].append(avg_val_recon_loss)
+        history['val_kld'].append(avg_val_kld)
 
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}")
-        
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, "
+              f"Train Recon: {avg_train_recon_loss:.4f}, Train KL: {avg_train_kld:.4f}, "
+              f"Val Recon: {avg_val_recon_loss:.4f}, Val KL: {avg_val_kld:.4f}")
+
         # Save best model
         if avg_val_loss < best_val_loss:
             best_val_loss = avg_val_loss
             best_model_state = copy.deepcopy(vae_model.state_dict())
-            # print(f"New best model found at epoch {epoch+1} with val loss {best_val_loss:.4f}")
 
     print("VAE training complete!")
-    
+
     if best_model_state is not None:
         print(f"Restoring best model from epoch with val loss: {best_val_loss:.4f}")
         vae_model.load_state_dict(best_model_state)
-        
+
     return history
 
 
