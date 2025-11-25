@@ -15,12 +15,15 @@ def resize_images(size=(128, 128)):
         resized_images.append(np.array(img_resized))
     return np.array(resized_images) 
 
-def get_data(normalize=True, size=(128, 128)):
+def get_data(normalize='tanh', size=(128, 128)):
     images_128_128 = resize_images(size)
     
-    if normalize:
+    if normalize == 'tanh':
         # Normalize to [-1, 1]
         images_128_128 = (images_128_128 / 127.5) - 1.0
+    elif normalize == 'zero_one':
+        # Normalize to [0, 1]
+        images_128_128 = images_128_128 / 255.0
         
     y = np.where(proba>0.5,1,0)
     return images_128_128, y, types
