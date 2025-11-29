@@ -3,6 +3,8 @@
 # normalized to [-1, 1]
 # MSE or L1 loss for reconstruction
 
+import numpy as np
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -79,6 +81,7 @@ class Decoder(nn.Module):
 class VAE(nn.Module):
     def __init__(self, latent_dim=64, img_channels=1):
         super().__init__()
+        self.latent_dim = latent_dim
         self.encoder = Encoder(latent_dim, img_channels)
         self.decoder = Decoder(latent_dim, img_channels)
 
@@ -207,3 +210,90 @@ def train_vae(vae_model, X_train, X_val, epochs=50, batch_size=32, lr=1e-3, weig
         vae_model.load_state_dict(best_model_state)
         
     return history
+
+
+def generate_sample(vae_model, n_samples=800, device="cpu"):
+
+    """
+    Generates new samples from the VAE model by sampling from the latent space.
+    
+    Args:
+        vae_model: Trained VAE instance.
+        n_samples: How many new images to generate.
+        device: 'cuda' or 'cpu'.
+        
+    Returns:
+        generated_images: Numpy array of generated images.
+    """
+    # set a random seed for reproducibility
+    torch.manual_seed(1927)
+
+    vae_model.eval()
+    vae_model.to(device)
+    
+    latent_dim = vae_model.latent_dim
+    n_samples = n_samples
+
+    with torch.no_grad():
+        z = torch.randn(n_samples, latent_dim).to(device)
+        generated = vae_model.decoder(z)
+    
+    return generated.squeeze().cpu().numpy()
+
+
+
+def generate_controlled_samples(vae_model, X_train, n_samples=800, device="cpu"):
+    """
+    Generates new samples using specific control strategies.
+    
+    Args:
+        vae_model: Trained VAE instance.
+        X_train: Your existing dataset (numpy array).
+        n_samples: How many new images to generate.
+        method: 'interpolation' (mixes two images) or 'temperature' (low-variance random sampling).
+        device: 'cuda' or 'cpu'.
+    """
+    # set a random seed for reproducibility
+    torch.manual_seed(1927)
+    np.random.seed(1927)
+
+    vae_model.eval()
+    vae_model.to(device)
+    
+    generated_images = []
+    
+    # Ensure X_train is a tensor for selecting pairs
+    if not isinstance(X_train, torch.Tensor):
+        X_data = torch.tensor(X_train, dtype=torch.float32)
+    else:
+        X_data = X_train
+
+    print(f"Generating {n_samples} images using linear interpolation...")
+
+    with torch.no_grad():
+        for i in range(n_samples):
+            
+
+            # Creates a hybrid of two real images. Best for safe augmentation.
+            # 1. Pick two random distinct images from your dataset
+            idx1, idx2 = np.random.choice(len(X_data), 2, replace=False)
+            img1 = X_data[idx1].unsqueeze(0).unsqueeze(0).to(device) # Shape: (1, 1, 128, 128)
+            img2 = X_data[idx2].unsqueeze(0).unsqueeze(0).to(device)
+
+
+            mu1, _ = vae_model.encoder(img1)
+            mu2, _ = vae_model.encoder(img2)
+                
+
+            # Randomize alpha between 0.2 and 0.8 to avoid getting identical copies of originals
+            alpha = np.random.uniform(0.2, 0.8) 
+                
+            # The formula: z_new = (alpha * z1) + ((1-alpha) * z2)
+            z_new = (alpha * mu1) + ((1 - alpha) * mu2)
+                
+            # 4. Decode
+            x_new = vae_model.decoder(z_new)
+                
+            generated_images.append(x_new.squeeze().cpu().numpy())
+
+    return np.array(generated_images)
