@@ -21,12 +21,12 @@ def get_data(normalize='tanh', size=(128, 128)):
     if normalize == 'tanh':
         # Normalize to [-1, 1]
         images_128_128 = (images_128_128 / 127.5) - 1.0
-    elif normalize == 'zero_one':
+    elif normalize == 'sig':
         # Normalize to [0, 1]
         images_128_128 = images_128_128 / 255.0
         
     y = np.where(proba>0.5,1,0)
-    return images_128_128, y, types
+    return images_128_128, y, types, proba
 
 # Data Augmentation functions
 def horizontal_flip(image):
