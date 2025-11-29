@@ -10,3 +10,7 @@ wheels/
 .venv
 
 .vscode/
+
+# model weights
+vaeA_model_weights.pth
+vaeC_model_weights.pth
