@@ -241,19 +241,42 @@ def generate_sample(vae_model, n_samples=800, device="cpu"):
     return generated.squeeze().cpu().numpy()
 
 
-
-def generate_controlled_samples(vae_model, X_train, n_samples=800, device="cpu"):
+def slerp_torch(val, low, high):
     """
-    Generates new samples using specific control strategies.
+    Spherical Linear Interpolation for PyTorch Tensors.
+    """
+    # 1. Normalize vectors to unit sphere to calculate the angle
+    low_norm = low / torch.norm(low, dim=1, keepdim=True)
+    high_norm = high / torch.norm(high, dim=1, keepdim=True)
     
-    Args:
-        vae_model: Trained VAE instance.
-        X_train: Your existing dataset (numpy array).
-        n_samples: How many new images to generate.
-        method: 'interpolation' (mixes two images) or 'temperature' (low-variance random sampling).
-        device: 'cuda' or 'cpu'.
+    # 2. Calculate the dot product (cosine of the angle)
+    dot = (low_norm * high_norm).sum(1)
+    
+    # 3. Clamp for numerical stability (to ensure it stays between -1 and 1)
+    dot = torch.clamp(dot, -1.0, 1.0)
+    
+    # 4. Calculate the angle (omega)
+    omega = torch.acos(dot)
+    so = torch.sin(omega)
+    
+    # 5. Handle case where vectors are parallel (omega = 0) to avoid div by zero
+    # We treat 'so' as a scalar here for the check
+    if so.item() < 1e-6:
+        return (1.0 - val) * low + val * high
+    
+    # 6. Calculate interpolation coefficients
+    s0 = torch.sin((1.0 - val) * omega) / so
+    s1 = torch.sin(val * omega) / so
+    
+    # 7. Apply to ORIGINAL vectors (to preserve the latent radius/magnitude)
+    return s0.unsqueeze(1) * low + s1.unsqueeze(1) * high
+
+
+def generate_controlled_samples(vae_model, X_train, Z_train, X_healthy, n_samples=800, mode="spherical", threshold=5.0, device="cpu"):
     """
-    # set a random seed for reproducibility
+    Generates samples, filtering out those close to the 'Healthy' distribution.
+    Optimized for ~1500 healthy reference images (no batching).
+    """
     torch.manual_seed(1927)
     np.random.seed(1927)
 
@@ -262,38 +285,83 @@ def generate_controlled_samples(vae_model, X_train, n_samples=800, device="cpu")
     
     generated_images = []
     
-    # Ensure X_train is a tensor for selecting pairs
+    # Convert Defective Training Data
     if not isinstance(X_train, torch.Tensor):
         X_data = torch.tensor(X_train, dtype=torch.float32)
     else:
         X_data = X_train
 
-    print(f"Generating {n_samples} images using linear interpolation...")
+    # Convert Healthy Reference Data
+    if not isinstance(X_healthy, torch.Tensor):
+        X_healthy_tensor = torch.tensor(X_healthy, dtype=torch.float32)
+    else:
+        X_healthy_tensor = X_healthy
+        
+    # Ensure correct shape (N, C, H, W) -> Adds channel dim if missing
+    if len(X_healthy_tensor.shape) == 3:
+        X_healthy_tensor = X_healthy_tensor.unsqueeze(1)
+
+    # CALCULATE HEALTHY CENTROID---
+    print("Calculating Healthy Centroid...")
+    
+    with torch.no_grad():
+
+        mu_healthy, _ = vae_model.encoder(X_healthy_tensor.to(device))
+        healthy_centroid = torch.mean(mu_healthy, dim=0)
+    
+    print(f"Centroid calculated. Filtering samples with Latent Distance < {threshold}")
+
+    #GENERATION 
+    count = 0
+    attempts = 0
+    max_attempts = n_samples * 10 # Allow more attempts to find good samples
 
     with torch.no_grad():
-        for i in range(n_samples):
-            
+        while count < n_samples:
+            attempts += 1
+            if attempts > max_attempts:
+                print("Warning: Max attempts reached. Stopped early.")
+                break
 
-            # Creates a hybrid of two real images. Best for safe augmentation.
-            # 1. Pick two random distinct images from your dataset
-            idx1, idx2 = np.random.choice(len(X_data), 2, replace=False)
-            img1 = X_data[idx1].unsqueeze(0).unsqueeze(0).to(device) # Shape: (1, 1, 128, 128)
+            # A. Select class
+            classes = ['poly', 'mono']
+            s = np.random.choice(classes)
+            indices = np.where(Z_train == s)[0]
+
+            if len(indices) < 2: continue
+                
+            idx1, idx2 = np.random.choice(indices, size=2, replace=False)
+
+            img1 = X_data[idx1].unsqueeze(0).unsqueeze(0).to(device) 
             img2 = X_data[idx2].unsqueeze(0).unsqueeze(0).to(device)
-
 
             mu1, _ = vae_model.encoder(img1)
             mu2, _ = vae_model.encoder(img2)
                 
-
-            # Randomize alpha between 0.2 and 0.8 to avoid getting identical copies of originals
             alpha = np.random.uniform(0.2, 0.8) 
-                
-            # The formula: z_new = (alpha * z1) + ((1-alpha) * z2)
-            z_new = (alpha * mu1) + ((1 - alpha) * mu2)
-                
-            # 4. Decode
+            
+            # B. Interpolate
+            if mode == "linear":
+                z_new = (alpha * mu1) + ((1 - alpha) * mu2)
+            elif mode == "spherical":
+                z_new = slerp_torch(alpha, mu1, mu2)
+            else:
+                raise ValueError("Mode must be 'linear' or 'spherical'")
+
+            
+            # Calculate Euclidean distance
+            distance = torch.norm(z_new - healthy_centroid)
+            
+            if distance.item() < threshold:
+                # Too close to healthy -> Skip
+                continue 
+            
+            # C. Decode
             x_new = vae_model.decoder(z_new)
-                
             generated_images.append(x_new.squeeze().cpu().numpy())
+            count += 1
+            
+            if count % 100 == 0:
+                print(f"Generated {count}/{n_samples} images...")
 
     return np.array(generated_images)
