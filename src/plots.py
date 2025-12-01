@@ -33,7 +33,7 @@ def visualize_augmentations(new_images, n_show=5, normalize='tanh'):
     plt.show()
 
 
-def visualize_interpolation(model, X_train_vae, n_steps=10):
+def visualize_interpolation(model, X_train_vae, n_steps=10, t=5):
     """
     Visualize latent space SLERP interpolation between two random images.
     
@@ -43,23 +43,29 @@ def visualize_interpolation(model, X_train_vae, n_steps=10):
         n_steps: Number of interpolation steps
     """
     
-    # Select two random defect images
-    idx1, idx2 = np.random.choice(len(X_train_vae), 2, replace=False)
-    img1 = X_train_vae[idx1:idx1+1]
-    img2 = X_train_vae[idx2:idx2+1]
+    # Repeat until mu1 and mu2 are close enough (distance < 5)
+    while True:
+        # Select two random defect images
+        idx1, idx2 = np.random.choice(len(X_train_vae), 2, replace=False)
+        img1 = X_train_vae[idx1:idx1+1]
+        img2 = X_train_vae[idx2:idx2+1]
 
-    # Add channel dimension if needed and convert to tensor
-    if img1.ndim == 3:
-        img1 = torch.tensor(img1[:, np.newaxis, :, :], dtype=torch.float32)
-        img2 = torch.tensor(img2[:, np.newaxis, :, :], dtype=torch.float32)
-    else:
-        img1 = torch.tensor(img1, dtype=torch.float32)
-        img2 = torch.tensor(img2, dtype=torch.float32)
+        # Add channel dimension if needed and convert to tensor
+        if img1.ndim == 3:
+            img1 = torch.tensor(img1[:, np.newaxis, :, :], dtype=torch.float32)
+            img2 = torch.tensor(img2[:, np.newaxis, :, :], dtype=torch.float32)
+        else:
+            img1 = torch.tensor(img1, dtype=torch.float32)
+            img2 = torch.tensor(img2, dtype=torch.float32)
 
-    # Encode both images to latent space
-    with torch.no_grad():
-        mu1, _ = model.encoder(img1)
-        mu2, _ = model.encoder(img2)
+        # Encode both images to latent space
+        with torch.no_grad():
+            mu1, _ = model.encoder(img1)
+            mu2, _ = model.encoder(img2)
+
+        # Check the distance between mu1 and mu2
+        if torch.norm(mu1 - mu2) < t:
+            break
 
     # Create interpolation with alpha from 0 to 1
     alphas = np.linspace(0, 1, n_steps)
