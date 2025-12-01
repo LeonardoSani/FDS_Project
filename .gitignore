@@ -12,5 +12,5 @@ wheels/
 .vscode/
 
 # model weights
-vaeA_model_weights.pth
-vaeC_model_weights.pth
+vaeA_beta_04_model_weights.pth
+vaeA_model_Beta_ann_weights.pth
