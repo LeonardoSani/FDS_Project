@@ -197,22 +197,15 @@ def tune_hyperparameters(model_class, X_train, Y_train, X_val, Y_val, param_grid
         loss_score = final_metrics.get('loss', 99.9)
         print(f"   -> Result: Val F1: {score:.4f} (Loss: {loss_score:.4f})")
 
-        result_entry = {
-            'trial': i,
-            'params': current_params,
-            'metrics': final_metrics,
-            'history': history
-        }
         tuning_results.append(result_entry)
 
         if score > best_score:
             best_score = score
             best_params = current_params
-            best_model = copy.deepcopy(trained_model)
             print(f"   *** New Best Model Found! ***")
 
     print("\n--- Tuning Complete ---")
     print(f"Best F1 Score: {best_score:.4f}")
     print(f"Best Params: {best_params}")
     
-    return best_params, best_model, tuning_results
+    return best_params
