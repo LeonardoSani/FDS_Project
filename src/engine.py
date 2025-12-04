@@ -4,11 +4,11 @@ import random
 import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from torch.optim.lr_scheduler import ReduceLROnPlateau
+# NEW IMPORTS
+from torch.utils.data import DataLoader, TensorDataset
 
+# ... [Keep EarlyStopping class as is] ...
 class EarlyStopping:
-    """
-    Early stops the training if validation metric doesn't improve after a given patience.
-    """
     def __init__(self, patience=7, min_delta=0, mode='max', verbose=False):
         self.patience = patience
         self.min_delta = min_delta
@@ -41,6 +41,7 @@ class EarlyStopping:
             self.counter = 0
         return self.early_stop
 
+# ... [Keep train_one_epoch, validate, and train_model as is] ...
 def train_one_epoch(model, loader, criterion, optimizer, device):
     model.train()
     running_loss = 0.0
@@ -90,7 +91,6 @@ def validate(model, loader, criterion, device):
 def train_model(model, train_loader, val_loader, params, device, verbose=True):
     criterion = torch.nn.BCEWithLogitsLoss()
     
-    # Standard optimization with weight decay support
     optimizer = torch.optim.Adam(
         model.parameters(), 
         lr=params['lr'],
@@ -143,14 +143,27 @@ def train_model(model, train_loader, val_loader, params, device, verbose=True):
     return model, history, best_metrics
 
 # ==========================================
-# STANDARD TUNING FUNCTION (FULL DATASET)
+# UPDATED TUNING FUNCTION
 # ==========================================
 
-def tune_hyperparameters(model_class, train_loader, val_loader, param_grid, device, n_trials=10):
+def create_loader(X, y, batch_size, shuffle=True):
+    # Ensure inputs are tensors and handle channel dim
+    if not isinstance(X, torch.Tensor):
+        X = torch.tensor(X, dtype=torch.float32)
+    if X.ndim == 3: # Add channel dim if missing (N, H, W) -> (N, 1, H, W)
+        X = X.unsqueeze(1)
+        
+    if not isinstance(y, torch.Tensor):
+        y = torch.tensor(y, dtype=torch.float32)
+
+    dataset = TensorDataset(X, y)
+    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle)
+
+def tune_hyperparameters(model_class, X_train, Y_train, X_val, Y_val, param_grid, device, n_trials=10):
     """
-    Performs Random Search over the parameter grid using the full training loader.
+    Performs Random Search. Accepts RAW DATA (X, Y) to allow dynamic batch_size creation.
     """
-    print(f"--- Starting Full Hyperparameter Tuning ({n_trials} trials) ---")
+    print(f"--- Starting Hyperparameter Tuning ({n_trials} trials) ---")
     
     best_score = -1.0
     best_params = None
@@ -161,21 +174,25 @@ def tune_hyperparameters(model_class, train_loader, val_loader, param_grid, devi
         # 1. Randomly sample parameters
         current_params = {k: random.choice(v) for k, v in param_grid.items()}
         
-        # Default epoch count if not specified
-        if 'epochs' not in current_params:
-            current_params['epochs'] = 50
+        # Default defaults
+        if 'epochs' not in current_params: current_params['epochs'] = 5
+        bs = current_params.get('batch_size', 32)
             
         print(f"\n[Trial {i+1}/{n_trials}] Params: {current_params}")
 
-        # 2. Instantiate fresh model
+        # 2. Create Loaders with the specific Batch Size for this trial
+        train_loader = create_loader(X_train, Y_train, batch_size=bs, shuffle=True)
+        val_loader = create_loader(X_val, Y_val, batch_size=bs, shuffle=False)
+
+        # 3. Instantiate fresh model
         model = model_class(num_classes=1).to(device)
 
-        # 3. Train on full dataset
+        # 4. Train
         trained_model, history, final_metrics = train_model(
             model, train_loader, val_loader, current_params, device, verbose=False
         )
 
-        # 4. Evaluate
+        # 5. Evaluate
         score = final_metrics.get('f1', 0.0)
         loss_score = final_metrics.get('loss', 99.9)
         print(f"   -> Result: Val F1: {score:.4f} (Loss: {loss_score:.4f})")
@@ -188,7 +205,6 @@ def tune_hyperparameters(model_class, train_loader, val_loader, param_grid, devi
         }
         tuning_results.append(result_entry)
 
-        # 5. Update Best
         if score > best_score:
             best_score = score
             best_params = current_params
