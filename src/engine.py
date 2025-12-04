@@ -1,8 +1,9 @@
 import torch
 import copy
+import random
+import numpy as np
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from torch.optim.lr_scheduler import ReduceLROnPlateau
-
 
 class EarlyStopping:
     """
@@ -86,25 +87,32 @@ def validate(model, loader, criterion, device):
     }
     return metrics
 
-def train_model(model, train_loader, val_loader, params, device):
+def train_model(model, train_loader, val_loader, params, device, verbose=True):
     criterion = torch.nn.BCEWithLogitsLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=params['lr'])
+    
+    # Standard optimization with weight decay support
+    optimizer = torch.optim.Adam(
+        model.parameters(), 
+        lr=params['lr'],
+        weight_decay=params.get('weight_decay', 0) 
+    )
 
-    # Initialize learning rate scheduler
     scheduler = ReduceLROnPlateau(optimizer, mode='max',
                                   factor=params.get('scheduler_factor', 0.5),
                                   patience=params.get('scheduler_patience', 5))
 
-    # Initialize Early Stopping
     early_stopping = EarlyStopping(patience=params.get('early_stopping_patience', 10),
                                    min_delta=params.get('early_stopping_min_delta', 0.001),
                                    mode='max', verbose=False)
 
     best_wts = copy.deepcopy(model.state_dict())
     best_f1 = float('-inf')
+    best_metrics = {} 
+
     history = {'train_loss': [], 'val_f1': [], 'val_loss': []}
 
-    print(f"Training on {device} for {params['epochs']} epochs...")
+    if verbose:
+        print(f"Training on {device} for {params['epochs']} epochs...")
 
     for epoch in range(params['epochs']):
         train_loss, _ = train_one_epoch(model, train_loader, criterion, optimizer, device)
@@ -116,20 +124,79 @@ def train_model(model, train_loader, val_loader, params, device):
         history['val_f1'].append(current_val_f1)
         history['val_loss'].append(val_metrics['loss'])
 
-        # Check for best model based on validation F1
         if current_val_f1 > best_f1:
             best_f1 = current_val_f1
             best_wts = copy.deepcopy(model.state_dict())
+            best_metrics = val_metrics
 
-        # Step the learning rate scheduler
         scheduler.step(current_val_f1)
 
-        # Check for early stopping
         if early_stopping(current_val_f1):
-            print(f"Early stopping triggered after {epoch + 1} epochs (no improvement for {early_stopping.patience} epochs).")
+            if verbose:
+                print(f"Early stopping triggered after {epoch + 1} epochs.")
             break
-
-        print(f"Ep {epoch+1}: TrLoss {train_loss:.4f} | Val F1 {current_val_f1:.4f} | ValLoss {val_metrics['loss']:.4f} | LR {optimizer.param_groups[0]['lr']:.6f}")
+        
+        if verbose:
+            print(f"Ep {epoch+1}: TrLoss {train_loss:.4f} | Val F1 {current_val_f1:.4f} | ValLoss {val_metrics['loss']:.4f} | LR {optimizer.param_groups[0]['lr']:.6f}")
 
     model.load_state_dict(best_wts)
-    return model, history
+    return model, history, best_metrics
+
+# ==========================================
+# STANDARD TUNING FUNCTION (FULL DATASET)
+# ==========================================
+
+def tune_hyperparameters(model_class, train_loader, val_loader, param_grid, device, n_trials=10):
+    """
+    Performs Random Search over the parameter grid using the full training loader.
+    """
+    print(f"--- Starting Full Hyperparameter Tuning ({n_trials} trials) ---")
+    
+    best_score = -1.0
+    best_params = None
+    best_model = None
+    tuning_results = []
+
+    for i in range(n_trials):
+        # 1. Randomly sample parameters
+        current_params = {k: random.choice(v) for k, v in param_grid.items()}
+        
+        # Default epoch count if not specified
+        if 'epochs' not in current_params:
+            current_params['epochs'] = 50
+            
+        print(f"\n[Trial {i+1}/{n_trials}] Params: {current_params}")
+
+        # 2. Instantiate fresh model
+        model = model_class(num_classes=1).to(device)
+
+        # 3. Train on full dataset
+        trained_model, history, final_metrics = train_model(
+            model, train_loader, val_loader, current_params, device, verbose=False
+        )
+
+        # 4. Evaluate
+        score = final_metrics.get('f1', 0.0)
+        loss_score = final_metrics.get('loss', 99.9)
+        print(f"   -> Result: Val F1: {score:.4f} (Loss: {loss_score:.4f})")
+
+        result_entry = {
+            'trial': i,
+            'params': current_params,
+            'metrics': final_metrics,
+            'history': history
+        }
+        tuning_results.append(result_entry)
+
+        # 5. Update Best
+        if score > best_score:
+            best_score = score
+            best_params = current_params
+            best_model = copy.deepcopy(trained_model)
+            print(f"   *** New Best Model Found! ***")
+
+    print("\n--- Tuning Complete ---")
+    print(f"Best F1 Score: {best_score:.4f}")
+    print(f"Best Params: {best_params}")
+    
+    return best_params, best_model, tuning_results
