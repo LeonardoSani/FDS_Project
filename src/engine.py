@@ -7,7 +7,7 @@ from torch.optim.lr_scheduler import ReduceLROnPlateau
 # NEW IMPORTS
 from torch.utils.data import DataLoader, TensorDataset
 
-# ... [Keep EarlyStopping class as is] ...
+
 class EarlyStopping:
     def __init__(self, patience=7, min_delta=0, mode='max', verbose=False):
         self.patience = patience
@@ -142,9 +142,6 @@ def train_model(model, train_loader, val_loader, params, device, verbose=True):
     model.load_state_dict(best_wts)
     return model, history, best_metrics
 
-# ==========================================
-# UPDATED TUNING FUNCTION
-# ==========================================
 
 def create_loader(X, y, batch_size, shuffle=True):
     # Ensure inputs are tensors and handle channel dim
@@ -167,8 +164,6 @@ def tune_hyperparameters(model_class, X_train, Y_train, X_val, Y_val, param_grid
     
     best_score = -1.0
     best_params = None
-    best_model = None
-    tuning_results = []
 
     for i in range(n_trials):
         # 1. Randomly sample parameters
@@ -197,8 +192,6 @@ def tune_hyperparameters(model_class, X_train, Y_train, X_val, Y_val, param_grid
         loss_score = final_metrics.get('loss', 99.9)
         print(f"   -> Result: Val F1: {score:.4f} (Loss: {loss_score:.4f})")
 
-        tuning_results.append(result_entry)
-
         if score > best_score:
             best_score = score
             best_params = current_params
@@ -209,3 +202,39 @@ def tune_hyperparameters(model_class, X_train, Y_train, X_val, Y_val, param_grid
     print(f"Best Params: {best_params}")
     
     return best_params
+
+def evaluate(model, loader, device, criterion=None):
+    """
+    Evaluates the model on a given dataset (e.g., test set).
+    Returns a dictionary of metrics: acc, f1, precision, recall.
+    If criterion is provided, also returns loss.
+    """
+    model = model.to(device)
+    model.eval()
+    running_loss = 0.0
+    all_preds, all_targets = [], []
+    
+    with torch.no_grad():
+        for inputs, labels in loader:
+            inputs, labels = inputs.to(device), labels.float().unsqueeze(1).to(device)
+            outputs = model(inputs)
+            
+            if criterion:
+                loss = criterion(outputs, labels)
+                running_loss += loss.item() * inputs.size(0)
+            
+            preds = torch.sigmoid(outputs) > 0.5
+            all_preds.extend(preds.cpu().numpy())
+            all_targets.extend(labels.cpu().numpy())
+            
+    metrics = {
+        'acc': accuracy_score(all_targets, all_preds),
+        'f1': f1_score(all_targets, all_preds),
+        'precision': precision_score(all_targets, all_preds),
+        'recall': recall_score(all_targets, all_preds)
+    }
+    
+    if criterion:
+        metrics['loss'] = running_loss / len(loader.dataset)
+        
+    return metrics
