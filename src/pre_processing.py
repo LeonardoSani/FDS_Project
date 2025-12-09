@@ -93,7 +93,7 @@ def augment_data(X, Y, Z):
     Y_augmented = []
     Z_augmented = []
 
-    # 1) For the smallest class: apply all three augmentations to every image
+    # For the smallest class: apply all three augmentations to every image
 
     smallest_indices = idx_map[smallest_class]
 
@@ -105,7 +105,7 @@ def augment_data(X, Y, Z):
 
 
 
-    # 2) For every other class: apply augmentations until each reaches target_N
+    # For every other class: apply augmentations until each reaches target_N
 
     for cls_arr, count in zip(unique_classes, class_counts):
         cl = tuple(map(int, cls_arr))

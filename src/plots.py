@@ -11,7 +11,7 @@ def plot_distribution(data, title='Data Distribution', ax =None):
     type_counts = pd.Series(data).value_counts()
     df_plot = pd.DataFrame({'Category': type_counts.index.astype(str), 'Count': type_counts.values})
 
-    # Use hue and legend=False to address FutureWarning
+
     sns.barplot(x='Category', y='Count', hue='Category', data=df_plot, palette='viridis', legend=False, ax=ax)
     ax.set_title(title)
     ax.set_xlabel('Category')
@@ -41,9 +41,10 @@ def visualize_interpolation(model, X_train_vae, n_steps=10, t=5):
         model: VAE model with encoder and decoder
         X_train_vae: Training data array
         n_steps: Number of interpolation steps
+        t: Threshold distance for selecting close enough latent vectors
     """
     
-    # Repeat until mu1 and mu2 are close enough (distance < 5)
+    # Repeat until mu1 and mu2 are close enough (distance < t)
     while True:
         # Select two random defect images
         idx1, idx2 = np.random.choice(len(X_train_vae), 2, replace=False)

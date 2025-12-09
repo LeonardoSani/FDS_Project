@@ -245,37 +245,34 @@ def slerp_torch(val, low, high):
     """
     Spherical Linear Interpolation for PyTorch Tensors.
     """
-    # 1. Normalize vectors to unit sphere to calculate the angle
+    # Normalize vectors to unit sphere to calculate the angle
     low_norm = low / torch.norm(low, dim=1, keepdim=True)
     high_norm = high / torch.norm(high, dim=1, keepdim=True)
     
-    # 2. Calculate the dot product (cosine of the angle)
+    # Calculate the dot product (cosine of the angle)
     dot = (low_norm * high_norm).sum(1)
     
-    # 3. Clamp for numerical stability (to ensure it stays between -1 and 1)
+    # Clamp for numerical stability (to ensure it stays between -1 and 1)
     dot = torch.clamp(dot, -1.0, 1.0)
     
-    # 4. Calculate the angle (omega)
+    # Calculate the angle (omega)
     omega = torch.acos(dot)
     so = torch.sin(omega)
     
-    # 5. Handle case where vectors are parallel (omega = 0) to avoid div by zero
-    # We treat 'so' as a scalar here for the check
+    # avoid div by zero
     if so.item() < 1e-6:
         return (1.0 - val) * low + val * high
     
-    # 6. Calculate interpolation coefficients
+    # Calculate interpolation coefficients
     s0 = torch.sin((1.0 - val) * omega) / so
     s1 = torch.sin(val * omega) / so
     
-    # 7. Apply to ORIGINAL vectors (to preserve the latent radius/magnitude)
     return s0.unsqueeze(1) * low + s1.unsqueeze(1) * high
 
 
 def generate_controlled_samples(vae_model, X_train, Z_train, X_healthy, n_samples=800, mode="spherical", threshold=5.0, device="cpu"):
     """
     Generates samples, filtering out those close to the 'Healthy' distribution.
-    Optimized for ~1500 healthy reference images (no batching).
     """
     torch.manual_seed(1927)
     np.random.seed(1927)
@@ -323,7 +320,7 @@ def generate_controlled_samples(vae_model, X_train, Z_train, X_healthy, n_sample
                 print("Warning: Max attempts reached. Stopped early.")
                 break
 
-            # A. Select class
+            # Select class
             classes = ['poly', 'mono']
             s = np.random.choice(classes)
             indices = np.where(Z_train == s)[0]
@@ -340,7 +337,7 @@ def generate_controlled_samples(vae_model, X_train, Z_train, X_healthy, n_sample
                 
             alpha = np.random.uniform(0.2, 0.8) 
             
-            # B. Interpolate
+            # Interpolate
             if mode == "linear":
                 z_new = (alpha * mu1) + ((1 - alpha) * mu2)
             elif mode == "spherical":
@@ -356,7 +353,7 @@ def generate_controlled_samples(vae_model, X_train, Z_train, X_healthy, n_sample
                 # Too close to healthy -> Skip
                 continue 
             
-            # C. Decode
+            # Decode
             x_new = vae_model.decoder(z_new)
             generated_images.append(x_new.squeeze().cpu().numpy())
             count += 1
