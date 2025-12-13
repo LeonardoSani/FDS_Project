@@ -42,13 +42,24 @@ def rotate_180(image):
     return np.rot90(image, k=2)
 
 
-def split_data(X, Y, Z, test_size=0.2, val_size=0.1, random_state=42):
+def split_data(X, Y, Z, test_size=0.1, val_size=0.1, random_state=42):
     """
-    Splits the dataset into training, validation, and test sets.
+    Splits data into Train, Val, Test.
     """
-    X_train, X_temp, Y_train, Y_temp, Z_train, Z_temp = train_test_split(X, Y, Z, test_size=test_size, random_state=random_state)
-    val_relative_size = val_size / (1 - test_size)
-    X_val, X_test, Y_val, Y_test, Z_val, Z_test = train_test_split(X_temp, Y_temp, Z_temp, test_size=val_relative_size, random_state=random_state)
+
+    temp_size = val_size + test_size 
+    
+
+    X_train, X_temp, Y_train, Y_temp, Z_train, Z_temp = train_test_split(
+        X, Y, Z, test_size=temp_size, random_state=random_state
+    )
+
+    test_relative_size = test_size / temp_size
+
+    X_val, X_test, Y_val, Y_test, Z_val, Z_test = train_test_split(
+        X_temp, Y_temp, Z_temp, test_size=test_relative_size, random_state=random_state
+    )
+
     return X_train, Y_train, Z_train, X_val, Y_val, Z_val, X_test, Y_test, Z_test
 
 def augment_data(X, Y, Z):
