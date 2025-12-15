@@ -14,7 +14,6 @@ This project focuses on defect detection in solar panels using machine learning 
 - `pyproject.toml`: Project configuration file defining dependencies and build settings.
 - `Final_report.pdf`: The 2 pages lenght Report
 
-
 ## Model Weights
 
-model weights (VAE, Resnet18) can be downloaded from: https://drive.google.com/drive/folders1rCzs0FLY0nW0CQRnHPsKPAmqpXf9Uzdv?usp=drive_link
+model weights (VAE, Resnet18) can be downloaded from: <https://drive.google.com/drive/folders1rCzs0FLY0nW0CQRnHPsKPAmqpXf9Uzdv?usp=drive_link>
