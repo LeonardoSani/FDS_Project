@@ -80,7 +80,7 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
     # Training Loop
-    history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': []}
+    history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': [], 'train_recall': [], 'train_precision': [], 'val_recall': [], 'val_precision': []}
     best_val_loss = float('inf')
     best_model_state = None
     
@@ -89,7 +89,8 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
     for epoch in range(epochs):
         model.train()
         train_loss = 0
-        train_correct = 0
+        train_preds = []
+        train_targets = []
         
         for batch_idx, (data, targets) in enumerate(train_loader):
             data, targets = data.to(device), targets.to(device)
@@ -102,17 +103,23 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
             
             train_loss += loss.item()
             preds = torch.sigmoid(outputs) > 0.5
-            train_correct += (preds == targets.bool()).sum().item()
+            train_preds.extend(preds.cpu().numpy().astype(int))
+            train_targets.extend(targets.cpu().numpy().astype(int))
         
         avg_train_loss = train_loss / len(train_loader.dataset)
-        train_acc = train_correct / len(train_loader.dataset)
+        train_acc = accuracy_score(train_targets, train_preds)
+        train_recall = recall_score(train_targets, train_preds, zero_division=0)
+        train_precision = precision_score(train_targets, train_preds, zero_division=0)
         history['train_loss'].append(avg_train_loss)
         history['train_acc'].append(train_acc)
+        history['train_recall'].append(train_recall)
+        history['train_precision'].append(train_precision)
         
         # Validation
         model.eval()
         val_loss = 0
-        val_correct = 0
+        val_preds = []
+        val_targets = []
         with torch.no_grad():
             for data, targets in val_loader:
                 data, targets = data.to(device), targets.to(device)
@@ -120,14 +127,19 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
                 loss = criterion(outputs, targets)
                 val_loss += loss.item()
                 preds = torch.sigmoid(outputs) > 0.5
-                val_correct += (preds == targets.bool()).sum().item()
+                val_preds.extend(preds.cpu().numpy().astype(int))
+                val_targets.extend(targets.cpu().numpy().astype(int))
         
         avg_val_loss = val_loss / len(val_loader.dataset)
-        val_acc = val_correct / len(val_loader.dataset)
+        val_acc = accuracy_score(val_targets, val_preds)
+        val_recall = recall_score(val_targets, val_preds, zero_division=0)
+        val_precision = precision_score(val_targets, val_preds, zero_division=0)
         history['val_loss'].append(avg_val_loss)
         history['val_acc'].append(val_acc)
+        history['val_recall'].append(val_recall)
+        history['val_precision'].append(val_precision)
         
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.4f}, Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.4f}")
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.4f}, Train Recall: {train_recall:.4f}, Train Prec: {train_precision:.4f}, Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.4f}, Val Recall: {val_recall:.4f}, Val Prec: {val_precision:.4f}")
         
         # Save best model based on val loss
         if avg_val_loss < best_val_loss:
