@@ -1,4 +1,4 @@
-# Mitigating Data Imbalance in Solar Panel Defect Detection Using Variational Autoencoders and Geometric Data Generation
+# Investigating Variational Autoencoders for Data Imbalance Mitigation in Solar Panel Defect Detection
 
 This project focuses on defect detection in solar panels using machine learning models. It utilizes the ELPV (Electroluminescence Photovoltaic) dataset for training and evaluation. The project includes Variational Autoencoders (VAEs) for synthetic data generation to augment the dataset and a ResNet18 model for binary classification of defects.
 
@@ -17,3 +17,4 @@ This project focuses on defect detection in solar panels using machine learning 
 ## Model Weights
 
 model weights (VAE, Resnet18) can be downloaded from: <https://drive.google.com/drive/folders1rCzs0FLY0nW0CQRnHPsKPAmqpXf9Uzdv?usp=drive_link>
+
