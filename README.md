@@ -16,5 +16,6 @@ This project focuses on defect detection in solar panels using machine learning 
 
 ## Model Weights
 
-model weights (VAE, Resnet18) can be downloaded from: <https://drive.google.com/drive/folders1rCzs0FLY0nW0CQRnHPsKPAmqpXf9Uzdv?usp=drive_link>
+model weights (VAE, Resnet18) can be downloaded from: <[https://drive.google.com/drive/folders1rCzs0FLY0nW0CQRnHPsKPAmqpXf9Uzdv?usp=drive_link](https://drive.google.com/drive/folders/1rCzs0FLY0nW0CQRnHPsKPAmqpXf9Uzdv?usp=sharing)>
+
 
