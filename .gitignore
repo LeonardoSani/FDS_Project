@@ -14,5 +14,6 @@ wheels/
 # model weights
 vaeA_beta_04_model_weights.pth
 vaeA_model_Beta_ann_weights.pth
+models
 
 .DS_Store
