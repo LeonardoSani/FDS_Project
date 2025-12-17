@@ -4,7 +4,8 @@ from torchvision import models
 import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 import copy
-from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score
+from sklearn.metrics import accuracy_score, f1_score, recall_score, precision_score, confusion_matrix, ConfusionMatrixDisplay, roc_curve, auc, precision_recall_curve
+import matplotlib.pyplot as plt
 
 class ResNet18Binary(nn.Module):
     def __init__(self, pretrained=True):
@@ -29,8 +30,8 @@ class ResNet18Binary(nn.Module):
     def forward(self, x):
         return self.resnet(x)
 
-
-def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_size=32, lr=1e-4, weight_decay=1e-4, device=None):
+# train 
+def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_size=32, lr=1e-4, weight_decay=1e-4, device=None, save_path=None):
     """
     Fine-tunes the ResNet model for binary classification.
     
@@ -45,10 +46,11 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
         lr: Learning rate for Adam optimizer.
         weight_decay: Weight decay for optimizer.
         device: 'cuda' or 'cpu'. If None, automatically detects.
+        save_path: Path to save the best model weights.
         
     Returns:
-        history: Dictionary containing 'train_loss', 'val_loss', 'train_acc', 'val_acc' lists.
-        model: The model with best validation loss loaded.
+        history: Dictionary containing metrics lists.
+        model: The model with best validation F1 score loaded.
     """
     
     if device is None:
@@ -80,8 +82,8 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
     optimizer = optim.Adam(model.parameters(), lr=lr, weight_decay=weight_decay)
     
     # Training Loop
-    history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': [], 'train_recall': [], 'train_precision': [], 'val_recall': [], 'val_precision': []}
-    best_val_loss = float('inf')
+    history = {'train_loss': [], 'val_loss': [], 'train_acc': [], 'val_acc': [], 'train_recall': [], 'train_prec': [], 'val_recall': [], 'val_prec': [], 'val_f1': []}
+    best_val_f1 = 0.0
     best_model_state = None
     
     print(f"Starting ResNet fine-tuning on {device}...")
@@ -89,8 +91,9 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
     for epoch in range(epochs):
         model.train()
         train_loss = 0
-        train_preds = []
-        train_targets = []
+        train_correct = 0
+        train_preds_all = []
+        train_targets_all = []
         
         for batch_idx, (data, targets) in enumerate(train_loader):
             data, targets = data.to(device), targets.to(device)
@@ -103,23 +106,28 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
             
             train_loss += loss.item()
             preds = torch.sigmoid(outputs) > 0.5
-            train_preds.extend(preds.cpu().numpy().astype(int))
-            train_targets.extend(targets.cpu().numpy().astype(int))
+            train_correct += (preds == targets.bool()).sum().item()
+            
+            train_preds_all.extend(preds.cpu().numpy().astype(int))
+            train_targets_all.extend(targets.cpu().numpy().astype(int))
         
         avg_train_loss = train_loss / len(train_loader.dataset)
-        train_acc = accuracy_score(train_targets, train_preds)
-        train_recall = recall_score(train_targets, train_preds, zero_division=0)
-        train_precision = precision_score(train_targets, train_preds, zero_division=0)
+        train_acc = train_correct / len(train_loader.dataset)
+        train_recall = recall_score(train_targets_all, train_preds_all, zero_division=0)
+        train_prec = precision_score(train_targets_all, train_preds_all, zero_division=0)
+        
         history['train_loss'].append(avg_train_loss)
         history['train_acc'].append(train_acc)
         history['train_recall'].append(train_recall)
-        history['train_precision'].append(train_precision)
+        history['train_prec'].append(train_prec)
         
         # Validation
         model.eval()
         val_loss = 0
-        val_preds = []
-        val_targets = []
+        val_correct = 0
+        val_preds_all = []
+        val_targets_all = []
+        
         with torch.no_grad():
             for data, targets in val_loader:
                 data, targets = data.to(device), targets.to(device)
@@ -127,43 +135,54 @@ def fine_tune_resnet(model, X_train, Y_train, X_val, Y_val, epochs=50, batch_siz
                 loss = criterion(outputs, targets)
                 val_loss += loss.item()
                 preds = torch.sigmoid(outputs) > 0.5
-                val_preds.extend(preds.cpu().numpy().astype(int))
-                val_targets.extend(targets.cpu().numpy().astype(int))
+                val_correct += (preds == targets.bool()).sum().item()
+                
+                val_preds_all.extend(preds.cpu().numpy().astype(int))
+                val_targets_all.extend(targets.cpu().numpy().astype(int))
         
         avg_val_loss = val_loss / len(val_loader.dataset)
-        val_acc = accuracy_score(val_targets, val_preds)
-        val_recall = recall_score(val_targets, val_preds, zero_division=0)
-        val_precision = precision_score(val_targets, val_preds, zero_division=0)
+        val_acc = val_correct / len(val_loader.dataset)
+        val_recall = recall_score(val_targets_all, val_preds_all, zero_division=0)
+        val_prec = precision_score(val_targets_all, val_preds_all, zero_division=0)
+        val_f1 = f1_score(val_targets_all, val_preds_all, zero_division=0)
+        
         history['val_loss'].append(avg_val_loss)
         history['val_acc'].append(val_acc)
         history['val_recall'].append(val_recall)
-        history['val_precision'].append(val_precision)
+        history['val_prec'].append(val_prec)
+        history['val_f1'].append(val_f1)
         
-        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Train Acc: {train_acc:.4f}, Train Recall: {train_recall:.4f}, Train Prec: {train_precision:.4f}, Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.4f}, Val Recall: {val_recall:.4f}, Val Prec: {val_precision:.4f}")
+        print(f"Epoch {epoch+1}/{epochs}, Train Loss: {avg_train_loss:.4f}, Val Loss: {avg_val_loss:.4f}, Val Acc: {val_acc:.4f}, Val Recall: {val_recall:.4f}, Val Prec: {val_prec:.4f}, Val F1: {val_f1:.4f}")
         
-        # Save best model based on val loss
-        if avg_val_loss < best_val_loss:
-            best_val_loss = avg_val_loss
+        # Save best model based on val F1 (maximizing F1)
+        if val_f1 > best_val_f1:
+            best_val_f1 = val_f1
             best_model_state = copy.deepcopy(model.state_dict())
+            if save_path:
+                torch.save(best_model_state, save_path)
+                print(f"Saved best model to {save_path} (F1: {best_val_f1:.4f})")
     
     print("ResNet fine-tuning complete!")
     
     if best_model_state is not None:
-        print(f"Restoring best model from epoch with val loss: {best_val_loss:.4f}")
+        print(f"Restoring best model from epoch with val F1: {best_val_f1:.4f}")
         model.load_state_dict(best_model_state)
     
     return history, model
 
-
-def evaluate_resnet(model, X_test, Y_test, device=None):
+# test dandogli il train 
+def evaluate_resnet(model, X_test, Y_test, device=None, plot_results=False, model_name="Model"):
     """
     Evaluates the ResNet model on test data and computes accuracy, F1 score, recall, and precision.
+    Optionally plots Confusion Matrix and ROC Curve.
     
     Args:
         model: The trained ResNet model.
         X_test: Test images (numpy array).
         Y_test: Test labels (numpy array).
         device: 'cuda' or 'cpu'. If None, automatically detects.
+        plot_results: Boolean, if True plots Confusion Matrix and ROC Curve.
+        model_name: String, name of the model for plot titles.
         
     Returns:
         metrics: Dictionary containing 'accuracy', 'f1', 'recall', 'precision'.
@@ -189,12 +208,16 @@ def evaluate_resnet(model, X_test, Y_test, device=None):
     
     all_preds = []
     all_targets = []
+    all_probs = []
     
     with torch.no_grad():
         for data, targets in test_loader:
             data, targets = data.to(device), targets.to(device)
             outputs = model(data)
-            preds = torch.sigmoid(outputs).squeeze() > 0.5
+            probs = torch.sigmoid(outputs).squeeze()
+            preds = probs > 0.5
+            
+            all_probs.extend(probs.cpu().numpy().astype(float))
             all_preds.extend(preds.cpu().numpy().astype(int))
             all_targets.extend(targets.cpu().numpy().astype(int))
     
@@ -211,9 +234,54 @@ def evaluate_resnet(model, X_test, Y_test, device=None):
         'precision': precision
     }
     
-    print(f"Test Metrics - Accuracy: {accuracy:.4f}, F1: {f1:.4f}, Recall: {recall:.4f}, Precision: {precision:.4f}")
+    print(f"Test Metrics ({model_name}) - Accuracy: {accuracy:.4f}, F1: {f1:.4f}, Recall: {recall:.4f}, Precision: {precision:.4f}")
+    
+    if plot_results:
+        # Confusion Matrix
+        cm = confusion_matrix(all_targets, all_preds)
+        disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Healthy', 'Defect'])
+        
+        # ROC Curve
+        fpr, tpr, _ = roc_curve(all_targets, all_probs)
+        roc_auc = auc(fpr, tpr)
+
+        # Precision-Recall Curve
+        precision_curve, recall_curve, _ = precision_recall_curve(all_targets, all_probs)
+        
+        # Plotting
+        fig, axs = plt.subplots(1, 3, figsize=(18, 5))
+        
+        # Plot CM
+        disp.plot(ax=axs[0], cmap='Blues', values_format='d')
+        axs[0].set_title(f'Confusion Matrix - {model_name}')
+        
+        # Plot ROC
+        axs[1].plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC curve (area = {roc_auc:.2f})')
+        axs[1].plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--')
+        axs[1].set_xlim([0.0, 1.0])
+        axs[1].set_ylim([0.0, 1.05])
+        axs[1].set_xlabel('False Positive Rate')
+        axs[1].set_ylabel('True Positive Rate')
+        axs[1].set_title(f'ROC Curve - {model_name}')
+        axs[1].legend(loc="lower right")
+
+        # Plot Precision-Recall
+        axs[2].plot(recall_curve, precision_curve, color='purple', lw=2, label='Precision-Recall curve')
+        axs[2].set_xlim([0.0, 1.0])
+        axs[2].set_ylim([0.0, 1.05])
+        axs[2].set_xlabel('Recall')
+        axs[2].set_ylabel('Precision')
+        axs[2].set_title(f'Precision-Recall Curve - {model_name}')
+        axs[2].legend(loc="lower left")
+        axs[2].grid(True)
+        
+        plt.tight_layout()
+        plt.show()
     
     return metrics
+
+
+
 
 
 
