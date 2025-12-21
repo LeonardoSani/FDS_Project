@@ -12,11 +12,14 @@ This project focuses on defect detection in solar panels using machine learning 
   - `other_Vae_options/`: Directory containing alternative VAE implementations (VaeB, VaeC, VaeD) for experimentation.
 - `Notebook.ipynb`: Jupyter notebook that demonstrates the entire workflow: data preprocessing, augmentation, loading pre-trained VAE models, generating synthetic samples, ResNet18 Performances
 - `pyproject.toml`: Project configuration file defining dependencies and build settings.
-- `Final_report.pdf`: The 2 pages lenght Report
+- `Final_report.pdf`: Short version ( 2 pages )
 
 ## Model Weights
 
 model weights (VAE, Resnet18) can be downloaded from: <https://drive.google.com/drive/folders/1rCzs0FLY0nW0CQRnHPsKPAmqpXf9Uzdv?usp=sharing>
 
 
+## Project presentation (PDF)
+
+<https://drive.google.com/drive/folders/1rCzs0FLY0nW0CQRnHPsKPAmqpXf9Uzdv?usp=sharing>
 
